@@ -612,7 +612,7 @@ cdef extern from "catboost/libs/options/enum_helpers.h":
     cdef bool_t IsCvStratifiedObjective(const TString& lossFunction) nogil except +ProcessException
     cdef bool_t IsRegressionObjective(const TString& lossFunction) nogil except +ProcessException
     cdef bool_t IsGroupwiseMetric(const TString& metricName) nogil except +ProcessException
-    cdef bool_t IsMultiDimensionalCompatibleError(const TString& metricName) nogil except +ProcessException
+    cdef bool_t IsMultiClassCompatibleMetric(const TString& metricName) nogil except +ProcessException
     cdef bool_t IsPairwiseMetric(const TString& metricName) nogil except +ProcessException
 
 cdef extern from "catboost/libs/metrics/metric.h":
@@ -1017,7 +1017,8 @@ cdef extern from "catboost/libs/hyperparameter_tuning/hyperparameter_tuning.h" n
         TDataProviderPtr pool,
         TBestOptionValuesWithCvResult* results,
         bool_t isSearchUsingCV,
-        bool_t isReturnCvResults) nogil except +ProcessException
+        bool_t isReturnCvResults,
+        int verbose) nogil except +ProcessException
 
     cdef void RandomizedSearch(
         ui32 numberOfTries,
@@ -1031,7 +1032,8 @@ cdef extern from "catboost/libs/hyperparameter_tuning/hyperparameter_tuning.h" n
         TDataProviderPtr pool,
         TBestOptionValuesWithCvResult* results,
         bool_t isSearchUsingCV,
-        bool_t isReturnCvResults) nogil except +ProcessException
+        bool_t isReturnCvResults,
+        int verbose) nogil except +ProcessException
 
 cdef inline float _FloatOrNan(object obj) except *:
     try:
@@ -3062,7 +3064,7 @@ cdef class _CatBoost:
     cpdef _tune_hyperparams(self, list grids_list, _PoolBase train_pool, dict params, int n_iter,
                           int fold_count, int partition_random_seed, bool_t shuffle, bool_t stratified,
                           double train_size, bool_t choose_by_train_test_split, bool_t return_cv_results,
-                          custom_folds):
+                          custom_folds, int verbose):
 
         prep_params = _PreprocessParams(params)
         prep_grids = _PreprocessGrids(grids_list)
@@ -3105,7 +3107,8 @@ cdef class _CatBoost:
                         train_pool.__pool,
                         &results,
                         choose_by_train_test_split,
-                        return_cv_results
+                        return_cv_results,
+                        verbose
                     )
                 else:
                     RandomizedSearch(
@@ -3120,7 +3123,8 @@ cdef class _CatBoost:
                         train_pool.__pool,
                         &results,
                         choose_by_train_test_split,
-                        return_cv_results
+                        return_cv_results,
+                        verbose
                     )
             finally:
                 ResetPythonInterruptHandler()
@@ -3151,8 +3155,11 @@ cdef class _CatBoost:
             best_params[key.decode('utf-8')] = value
         for key, value in results.StringOptions:
             best_params[key.decode('utf-8')] = value.decode('utf-8')
-        cv_results["params"] = best_params
-        return cv_results
+        search_result = {}
+        search_result["params"] = best_params
+        if return_cv_results:
+            search_result["cv_results"] = cv_results
+        return search_result
 
     cpdef _get_binarized_statistics(self, _PoolBase pool, catFeaturesNums, floatFeaturesNums, predictionType, int thread_count):
         thread_count = UpdateThreadCount(thread_count)
@@ -3360,8 +3367,7 @@ cdef TCustomTrainTestSubsets _make_train_test_subsets(_PoolBase pool, folds) exc
 
 
 cpdef _cv(dict params, _PoolBase pool, int fold_count, bool_t inverted, int partition_random_seed,
-          bool_t shuffle, bool_t stratified, bool_t as_pandas, double max_time_spent_on_fixed_cost_ratio,
-          int dev_max_iterations_batch_size, folds):
+          bool_t shuffle, bool_t stratified, bool_t as_pandas, folds):
     prep_params = _PreprocessParams(params)
     cdef TCrossValidationParams cvParams
     cdef TVector[TCVResult] results
@@ -3371,8 +3377,6 @@ cpdef _cv(dict params, _PoolBase pool, int fold_count, bool_t inverted, int part
     cvParams.Shuffle = shuffle
     cvParams.Stratified = stratified
     cvParams.Inverted = inverted
-    cvParams.MaxTimeSpentOnFixedCostRatio = max_time_spent_on_fixed_cost_ratio
-    cvParams.DevMaxIterationsBatchSize = <ui32>dev_max_iterations_batch_size
 
     cdef TMaybe[TCustomTrainTestSubsets] custom_train_test_subset
     if folds is not None:
@@ -3784,7 +3788,7 @@ cpdef is_groupwise_metric(metric_name):
 
 
 cpdef is_multiclass_metric(metric_name):
-    return IsMultiDimensionalCompatibleError(to_arcadia_string(metric_name))
+    return IsMultiClassCompatibleMetric(to_arcadia_string(metric_name))
 
 
 cpdef is_pairwise_metric(metric_name):

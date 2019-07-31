@@ -2496,7 +2496,7 @@ class CatBoost(_CatBoostBase):
 
     def _tune_hyperparams(self, param_grid, X, y=None, cv=3, n_iter=10, partition_random_seed=0,
                           calc_cv_statistics=True, search_by_train_test_split=True,
-                          refit=True, shuffle=True, stratified=None, train_size=0.8):
+                          refit=True, shuffle=True, stratified=None, train_size=0.8, verbose=1):
 
         currently_not_supported_params = {
             'ignored_features',
@@ -2554,11 +2554,12 @@ class CatBoost(_CatBoostBase):
             loss_function = params.get('loss_function', None)
             stratified = isinstance(loss_function, STRING_TYPES) and is_cv_stratified_objective(loss_function)
 
-        cv_result = self._object._tune_hyperparams(
-            param_grid, train_params["train_pool"], params, n_iter,
-            fold_count, partition_random_seed, shuffle, stratified, train_size,
-            search_by_train_test_split, calc_cv_statistics, custom_folds
-        )
+        with log_fixup():
+            cv_result = self._object._tune_hyperparams(
+                param_grid, train_params["train_pool"], params, n_iter,
+                fold_count, partition_random_seed, shuffle, stratified, train_size,
+                search_by_train_test_split, calc_cv_statistics, custom_folds, verbose
+            )
 
         self.set_params(**cv_result['params'])
         if refit:
@@ -2567,7 +2568,7 @@ class CatBoost(_CatBoostBase):
 
     def grid_search(self, param_grid, X, y=None, cv=3, partition_random_seed=0,
                     calc_cv_statistics=True, search_by_train_test_split=True,
-                    refit=True, shuffle=True, stratified=None, train_size=0.8):
+                    refit=True, shuffle=True, stratified=None, train_size=0.8, verbose=True):
         """
         Exhaustive search over specified parameter values for a model.
         Aafter calling this method model is fitted and can be used, if not specified otherwise (refit=False).
@@ -2630,6 +2631,10 @@ class CatBoost(_CatBoostBase):
         fold_count: int, optional (default=3)
             The number of folds to split the dataset into during final cross-validation.
 
+        verbose: bool or int, optional (default=True)
+            If verbose is int, it determines the frequency of writing metrics to output
+            verbose==True is equal to verbose==1
+            When verbose==False, there is no messages
         Returns
         -------
         dict with two fields:
@@ -2650,12 +2655,12 @@ class CatBoost(_CatBoostBase):
             param_grid=param_grid, X=X, y=y, cv=cv, n_iter=-1,
             partition_random_seed=partition_random_seed, calc_cv_statistics=calc_cv_statistics,
             search_by_train_test_split=search_by_train_test_split, refit=refit, shuffle=shuffle,
-            stratified=stratified, train_size=train_size
+            stratified=stratified, train_size=train_size, verbose=verbose
         )
 
     def randomized_search(self, param_distributions, X, y=None, cv=3, n_iter=10, partition_random_seed=0,
                           calc_cv_statistics=True, search_by_train_test_split=True,
-                          refit=True, shuffle=True, stratified=None, train_size=0.8):
+                          refit=True, shuffle=True, stratified=None, train_size=0.8, verbose=True):
         """
         Randomized search on hyper parameters.
         After calling this method model is fitted and can be used, if not specified otherwise (refit=False).
@@ -2725,6 +2730,10 @@ class CatBoost(_CatBoostBase):
         fold_count: int, optional (default=3)
             The number of folds to split the dataset into during final cross-validation.
 
+        verbose: bool or int, optional (default=True)
+            If verbose is int, it determines the frequency of writing metrics to output
+            verbose==True is equal to verbose==1
+            When verbose==False, there is no messages
         Returns
         -------
         dict with two fields:
@@ -2744,7 +2753,7 @@ class CatBoost(_CatBoostBase):
             param_grid=param_distributions, X=X, y=y, cv=cv, n_iter=n_iter,
             partition_random_seed=partition_random_seed, calc_cv_statistics=calc_cv_statistics,
             search_by_train_test_split=search_by_train_test_split, refit=refit, shuffle=shuffle,
-            stratified=stratified, train_size=train_size
+            stratified=stratified, train_size=train_size, verbose=verbose
         )
 
 class CatBoostClassifier(CatBoost):
@@ -3946,8 +3955,7 @@ def cv(pool=None, params=None, dtrain=None, iterations=None, num_boost_round=Non
        fold_count=None, nfold=None, inverted=False, partition_random_seed=0, seed=None,
        shuffle=True, logging_level=None, stratified=None, as_pandas=True, metric_period=None,
        verbose=None, verbose_eval=None, plot=False, early_stopping_rounds=None,
-       save_snapshot=None, snapshot_file=None, snapshot_interval=None, max_time_spent_on_fixed_cost_ratio=0.05,
-       dev_max_iterations_batch_size=100000, folds=None):
+       save_snapshot=None, snapshot_file=None, snapshot_interval=None, folds=None):
     """
     Cross-validate the CatBoost model.
 
@@ -4034,17 +4042,6 @@ def cv(pool=None, params=None, dtrain=None, iterations=None, num_boost_round=Non
 
     snapshot_interval: int, [default=600]
         Interval between saving snapshots (seconds)
-
-    max_time_spent_on_fixed_cost_ratio: float [default:0.05]
-        Iteration batch sizes are computed to keep time spent on fixed cost computations
-        (spent on fold initialization for each batch) under this ratio.
-        Increasing this parameter will decrease the batch sizes which could be useful to get first batch
-        results sooner in exchange for greater total computation time.
-
-    dev_max_iterations_batch_size: int [default:100000]
-        Max number of iterations to compute for each fold before aggregating results.
-        Should be used only for testing, max_time_spent_on_fixed_cost_ratio is the prefered parameter to be
-        used in normal operation.
 
     folds: generator or iterator of (train_idx, test_idx) tuples, scikit-learn splitter object or None, optional (default=None)
         If generator or iterator, it should yield the train and test indices for each fold.
@@ -4152,7 +4149,7 @@ def cv(pool=None, params=None, dtrain=None, iterations=None, num_boost_round=Non
 
     with log_fixup(), plot_wrapper(plot, [_get_train_dir(params)]):
         return _cv(params, pool, fold_count, inverted, partition_random_seed, shuffle, stratified,
-                   as_pandas, max_time_spent_on_fixed_cost_ratio, dev_max_iterations_batch_size, folds)
+                   as_pandas, folds)
 
 
 class BatchMetricCalcer(_MetricCalcerBase):
@@ -4207,7 +4204,6 @@ def _build_binarized_feature_statistics_fig(statistics, feature):
                              layout=_calc_feature_statistics_layout(go, feature, xaxis))
 
         order = np.arange(len(statistics['objects_per_bin']))
-        x_order = order[:-1]
         bar_width = 0.8
         xaxis = go.layout.XAxis(
             title='Bins',
@@ -4221,7 +4217,6 @@ def _build_binarized_feature_statistics_fig(statistics, feature):
         )
     elif 'cat_values' in statistics.keys():
         order = np.argsort(statistics['objects_per_bin'])[::-1]
-        x_order = order
         bar_width = 0.2
         xaxis = go.layout.XAxis(
             title='Cat values',
@@ -4261,7 +4256,7 @@ def _build_binarized_feature_statistics_fig(statistics, feature):
     )
 
     trace_4 = go.Scatter(
-        y=statistics['predictions_on_varying_feature'][x_order],
+        y=statistics['predictions_on_varying_feature'][order],
         mode='lines+markers',
         name='Predictions for different feature values',
         yaxis='y1',

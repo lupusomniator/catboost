@@ -2707,7 +2707,12 @@ def test_loglikelihood_of_prediction(boosting_type):
         '--test-err-log', test_error_path,
     )
     yatest.common.execute(cmd)
-    return [local_canonical_file(learn_error_path), local_canonical_file(test_error_path)]
+
+    # use eps=1e-7 since [log, exp] are platform specific
+    return [
+        local_canonical_file(learn_error_path, diff_tool=diff_tool(1e-7)),
+        local_canonical_file(test_error_path, diff_tool=diff_tool(1e-7))
+    ]
 
 
 @pytest.mark.parametrize('boosting_type', BOOSTING_TYPE)
@@ -6039,11 +6044,11 @@ def test_pairwise_bernoulli_bootstrap(subsample, sampling_unit, loss_function, d
 def test_bad_metrics_combination(loss_function, metric):
     BAD_PAIRS = {
         'Logloss': ['RMSE', 'MultiClass'],
-        'RMSE': ['Logloss', 'MultiClass', 'QuerySoftMax'],
+        'RMSE': ['Logloss', 'MultiClass'],
         'MultiClass': ['Logloss', 'RMSE', 'QuerySoftMax', 'PFound'],
-        'QuerySoftMax': ['RMSE', 'MultiClass'],
+        'QuerySoftMax': ['RMSE', 'MultiClass', 'QueryRMSE'],
         'QueryRMSE': ['Logloss', 'MultiClass', 'QuerySoftMax'],
-        'YetiRank': ['Logloss', 'RMSE', 'MultiClass', 'QuerySoftMax']
+        'YetiRank': ['Logloss', 'RMSE', 'MultiClass']
     }
 
     cd_path = yatest.common.test_output_path('cd.txt')
